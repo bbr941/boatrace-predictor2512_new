@@ -401,7 +401,10 @@ class FeatureEngineer:
     def get_features_subset(df, mode='honmei'):
         base_ignore = [
             'race_id', 'boat_number', 'racer_id', 'rank', 'relevance',
-            'race_date', 'venue_name', 'prior_results', 'weight_for_loss', 'pred_score', 'score'
+            'race_date', 'venue_name', 'prior_results', 'weight_for_loss', 'pred_score', 'score',
+            # Extra columns created in app but not in training
+            'wind_angle_deg', 'venue_tailwind_deg', 'venue_code_int',
+            'weather', 'boat_before', 'params'
         ]
         odds_features = ['syn_win_rate', 'odds', 'prediction_odds', 'popularity', 'vote_count', 'win_share']
         
