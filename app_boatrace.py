@@ -364,6 +364,16 @@ class FeatureEngineer:
         if 'race_date' not in df.columns: df['race_date'] = '20000101'
         
         # Categorical Conversion (Must match train_model.py logic)
+        # First, try to convert everything to numeric (like pd.read_csv does)
+        for col in df.columns:
+            if col not in ['race_date', 'venue_name', 'prior_results', 'wind_direction', 'branch']: # Skip obviously string cols to save time/risk
+                # Try simple conversion
+                try:
+                    df[col] = pd.to_numeric(df[col])
+                except:
+                    pass
+        
+        # Then convert remaining objects to category
         # train_model.py ignores: ['race_id', 'race_date', 'prior_results']
         ignore_cols = ['race_id', 'race_date', 'prior_results', 'pred_score', 'weight_for_loss', 'relevance', 'rank']
         
