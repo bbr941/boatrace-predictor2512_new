@@ -363,15 +363,28 @@ class FeatureEngineer:
 
         if 'race_date' not in df.columns: df['race_date'] = '20000101'
         
+        # Win Direction Mapping (Int -> String to match Training Data)
+        wind_map = {
+            1: '北', 2: '北北東', 3: '北東', 4: '東北東', 5: '東', 6: '東南東', 7: '南東', 8: '南南東',
+            9: '南', 10: '南南西', 11: '南西', 12: '西南西', 13: '西', 14: '西北西', 15: '北西', 16: '北北西'
+        }
+        # Only map if numeric
+        if pd.api.types.is_numeric_dtype(df['wind_direction']):
+             df['wind_direction'] = df['wind_direction'].map(wind_map).fillna(df['wind_direction'])
+             # If mapping leaves numbers (e.g. 0), coerce to string or handle?
+             # Train data likely has "南" etc. 0 might be problematic if not in train categories.
+             # Convert to string to ensure it becomes category later.
+             df['wind_direction'] = df['wind_direction'].astype(str)
+             # Handle 'nan' string if any
+             df['wind_direction'] = df['wind_direction'].replace('nan', '')
+
         # Categorical Conversion (Must match train_model.py logic)
         # First, try to convert everything to numeric (like pd.read_csv does)
+        # Use errors='coerce' to force non-parseable strings to NaN (float), 
+        # preventing them from staying as Object and becoming Category.
         for col in df.columns:
-            if col not in ['race_date', 'venue_name', 'prior_results', 'wind_direction', 'branch']: # Skip obviously string cols to save time/risk
-                # Try simple conversion
-                try:
-                    df[col] = pd.to_numeric(df[col])
-                except:
-                    pass
+            if col not in ['race_id', 'race_date', 'venue_name', 'prior_results', 'wind_direction', 'branch']:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         
         # Then convert remaining objects to category
         # train_model.py ignores: ['race_id', 'race_date', 'prior_results']
