@@ -363,12 +363,15 @@ class FeatureEngineer:
 
         if 'race_date' not in df.columns: df['race_date'] = '20000101'
         
-        ignore_cols = ['race_id', 'boat_number', 'racer_id', 'rank', 'venue_name', 'wind_direction', 'prior_results', 'exhibition_time']
+        # Categorical Conversion (Must match train_model.py logic)
+        # train_model.py ignores: ['race_id', 'race_date', 'prior_results']
+        ignore_cols = ['race_id', 'race_date', 'prior_results', 'pred_score', 'weight_for_loss', 'relevance', 'rank']
+        
         for col in df.columns:
             if col in ignore_cols: continue
             if df[col].dtype == 'object':
                 df[col] = df[col].astype('category')
-                
+
         return df
 
     @staticmethod
