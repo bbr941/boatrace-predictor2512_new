@@ -487,7 +487,14 @@ if st.session_state.get('run_analysis'):
             if os.path.exists(MODEL_HONMEI_PATH):
                 try:
                     model_h = lgb.Booster(model_file=MODEL_HONMEI_PATH)
-                    feats_h = FeatureEngineer.get_features_subset(df_feat, 'honmei')
+                    # Robust Feature Selection: Get exact features from model
+                    feats_h = model_h.feature_name()
+                    
+                    # Ensure all features exist
+                    for f in feats_h:
+                        if f not in df_feat.columns:
+                            df_feat[f] = 0
+                            
                     preds_h = model_h.predict(df_feat[feats_h])
                     df_feat['score_honmei'] = preds_h
                     
@@ -516,15 +523,14 @@ if st.session_state.get('run_analysis'):
             if os.path.exists(MODEL_ANA_PATH):
                 try:
                     model_a = lgb.Booster(model_file=MODEL_ANA_PATH)
-                    feats_a = FeatureEngineer.get_features_subset(df_feat, 'ana')
-                    # Ensure prediction works even if feature set differs from train if using Booster?
-                    # LGBM Booster check feature names? Yes.
-                    # We assume get_features_subset returns same consistent set if df columns are same.
-                    # Warning: If `df_feat` has different columns than train, might fail.
-                    # We rely on FeatureEngineer.process adding all empty '0' cols.
+                    # Robust Feature Selection: Get exact features from model
+                    feats_a = model_a.feature_name()
                     
-                    # Also need to ensure column ORDER match? 
-                    # Booster.predict(dataframe) usually maps by name.
+                    # Ensure all features exist
+                    for f in feats_a:
+                        if f not in df_feat.columns:
+                            df_feat[f] = 0
+
                     preds_a = model_a.predict(df_feat[feats_a])
                     df_feat['score_ana'] = preds_a
                     
