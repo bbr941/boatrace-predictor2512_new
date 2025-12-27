@@ -22,7 +22,7 @@ if st.sidebar.button("Clear Cache"):
     st.success("Cache Cleared!")
 
 MODEL_HONMEI_PATH = 'model_honmei.txt'
-MODEL_ANA_PATH = 'model_ana.txt'
+
 DATA_DIR = 'app_data'
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -411,18 +411,7 @@ class FeatureEngineer:
         all_cols = df.columns.tolist()
         candidates = [c for c in all_cols if c not in base_ignore]
         
-        if mode == 'ana':
-            final_feats = []
-            for c in candidates:
-                is_odds = False
-                for o in odds_features:
-                    if o in c:
-                        is_odds = True
-                        break
-                if not is_odds: final_feats.append(c)
-            return final_feats
-        else:
-            return candidates
+        return candidates
 
 def format_trifecta_box(boats):
     return f"{boats[0]}, {boats[1]}, {boats[2]}"
@@ -478,91 +467,34 @@ if st.session_state.get('run_analysis'):
         with st.spinner("Engineering Features..."):
             df_feat = FeatureEngineer.process(df_race, props['v_name'], debug_mode=debug_mode)
         
-        # --- Dual Prediction ---
-        col1, col2 = st.columns(2)
+        # --- Prediction ---
+        st.subheader("🤖 AI Prediction (3-Ren Tan)")
         
-        # Model A: Honmei
-        with col1:
-            st.markdown("### 🛡️ 本命AI (Accuracy Rules)")
-            if os.path.exists(MODEL_HONMEI_PATH):
-                try:
-                    model_h = lgb.Booster(model_file=MODEL_HONMEI_PATH)
-                    # Robust Feature Selection: Get exact features from model
-                    feats_h = model_h.feature_name()
-                    
-                    # Ensure all features exist
-                    for f in feats_h:
-                        if f not in df_feat.columns:
-                            df_feat[f] = 0
-                            
-                    preds_h = model_h.predict(df_feat[feats_h])
-                    df_feat['score_honmei'] = preds_h
-                    
-                    # Top 5
-                    scores_h = dict(zip(df_feat['boat_number'], df_feat['score_honmei']))
-                    sorted_boats_h = df_feat.sort_values('score_honmei', ascending=False)['boat_number'].tolist()
-                    
-                    df_c_h = calculate_trifecta_scores(scores_h, sorted_boats_h)
-                    
-                    st.success(f"Best: **{df_c_h.iloc[0]['combo']}**")
-                    st.markdown("#### Top Recommendations")
-                    for i in range(5):
-                        st.write(f"{i+1}. {df_c_h.iloc[i]['combo']}")
+        if os.path.exists(MODEL_HONMEI_PATH):
+            try:
+                model_h = lgb.Booster(model_file=MODEL_HONMEI_PATH)
+                # Robust Feature Selection: Get exact features from model
+                feats_h = model_h.feature_name()
+                
+                # Ensure all features exist
+                for f in feats_h:
+                    if f not in df_feat.columns:
+                        df_feat[f] = 0
                         
-                    top_h = df_c_h.iloc[0]['combo']
-                except Exception as e:
-                    st.error(f"Honmei Error: {e}")
-                    top_h = None
-            else:
-                st.warning("Model Honmei not found.")
-                top_h = None
-
-        # Model B: Ana
-        with col2:
-            st.markdown("### 💰 穴AI (High Dividend)")
-            if os.path.exists(MODEL_ANA_PATH):
-                try:
-                    model_a = lgb.Booster(model_file=MODEL_ANA_PATH)
-                    # Robust Feature Selection: Get exact features from model
-                    feats_a = model_a.feature_name()
-                    
-                    # Ensure all features exist
-                    for f in feats_a:
-                        if f not in df_feat.columns:
-                            df_feat[f] = 0
-
-                    preds_a = model_a.predict(df_feat[feats_a])
-                    df_feat['score_ana'] = preds_a
-                    
-                    scores_a = dict(zip(df_feat['boat_number'], df_feat['score_ana']))
-                    sorted_boats_a = df_feat.sort_values('score_ana', ascending=False)['boat_number'].tolist()
-                    
-                    df_c_a = calculate_trifecta_scores(scores_a, sorted_boats_a)
-                    
-                    st.success(f"Best: **{df_c_a.iloc[0]['combo']}**")
-                    st.markdown("#### Top Recommendations")
-                    for i in range(5):
-                        st.write(f"{i+1}. {df_c_a.iloc[i]['combo']}")
-                        
-                    top_a = df_c_a.iloc[0]['combo']
-
-                except Exception as e:
-                    st.error(f"Ana Error: {e}")
-                    top_a = None
-            else:
-                st.warning("Model Ana not found.")
-                top_a = None
-
-        # Synthesis
-        st.divider()
-        if top_h and top_a:
-            if top_h == top_a:
-                 st.markdown(f"## 🔥 激アツ鉄板: {top_h}")
-                 st.info("本命・穴モデル共に推奨！自信度MAX")
-                 
-                 # Data Issue Check
-                 if df_feat['score_honmei'].equals(df_feat['score_ana']):
-                     st.warning("⚠️ 注意: 両モデルの予測スコアが完全に一致しています。学習データにオッズ情報が含まれていない可能性があります。")
-                     
-            else:
-                 st.info("本命と穴で意見が割れました。オッズと相談して選択してください。")
+                preds_h = model_h.predict(df_feat[feats_h])
+                df_feat['score_honmei'] = preds_h
+                
+                # Top 5
+                scores_h = dict(zip(df_feat['boat_number'], df_feat['score_honmei']))
+                sorted_boats_h = df_feat.sort_values('score_honmei', ascending=False)['boat_number'].tolist()
+                
+                df_c_h = calculate_trifecta_scores(scores_h, sorted_boats_h)
+                
+                st.success(f"Best: **{df_c_h.iloc[0]['combo']}**")
+                st.markdown("#### Top 5 Recommendations")
+                st.dataframe(df_c_h.head(5), hide_index=True)
+                
+            except Exception as e:
+                st.error(f"Prediction Error: {e}")
+        else:
+            st.warning("Model file not found. Please train the model first.")
