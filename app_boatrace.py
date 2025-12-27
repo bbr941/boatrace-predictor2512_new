@@ -115,11 +115,24 @@ class BoatRaceScraper:
 
         boat_before = {}
         try:
+            # Parse Exhibition Time (Table is-w748)
             for i, tb in enumerate(soup_before.select("table.is-w748 tbody")):
                 tds = tb.select("td")
+                ex_val = None
                 if len(tds) >= 5:
-                    boat_before[i+1] = {'ex_time': BoatRaceScraper.parse_float(tds[4].text), 'st': 0.20}
+                    txt = tds[4].get_text(strip=True)
+                    # Check if valid number (not empty or nbsp)
+                    if txt and txt != '\xa0':
+                         try:
+                             ex_val = float(re.search(r'([\d\.]+)', txt).group(1))
+                         except: pass
+                
+                # If parsed, store it.
+                if ex_val is not None:
+                    if (i+1) not in boat_before: boat_before[i+1] = {}
+                    boat_before[i+1]['ex_time'] = ex_val
             
+            # Parse ST
             for idx, row in enumerate(soup_before.select("table.is-w238 tbody tr")):
                 bn_span = row.select_one("span.table1_boatImage1Number")
                 if bn_span:
@@ -137,7 +150,8 @@ class BoatRaceScraper:
                             except: val = -0.05
                         else:
                             val = BoatRaceScraper.parse_float(txt_raw)
-                    if b not in boat_before: boat_before[b] = {'ex_time': 6.8}
+                            
+                    if b not in boat_before: boat_before[b] = {}
                     boat_before[b]['st'] = val
                     boat_before[b]['pred_course'] = pred_c
         except: pass
@@ -147,6 +161,13 @@ class BoatRaceScraper:
             for i, tb in enumerate(soup_list.select("tbody.is-fs12")):
                 bn = i + 1
                 if bn > 6: break
+                
+                # Check Absence based on Missing Exhibition Time
+                # If boat not in boat_before OR ex_time is None => Absent
+                if bn not in boat_before or 'ex_time' not in boat_before[bn]:
+                    # Log or just skip
+                    # print(f"Boat {bn} Absent (No Ex Time)")
+                    continue
                 
                 racer_id = 9999
                 try: 
@@ -206,10 +227,12 @@ class BoatRaceScraper:
                 
                 boat = 30.0
                 try:
-                    txt = tds[7].get_text(" ", strip=True).replace('%', '')
-                    parts = txt.split()
-                    if len(parts) >= 2: boat = float(parts[1])
-                    else: boat = float(parts[0])
+                    # Index 7 Check
+                    if len(tds) > 7:
+                        txt = tds[7].get_text(" ", strip=True).replace('%', '')
+                        parts = txt.split()
+                        if len(parts) >= 2: boat = float(parts[1])
+                        else: boat = float(parts[0])
                 except: pass
                 
                 row = {
@@ -218,7 +241,7 @@ class BoatRaceScraper:
                     'racer_id': racer_id,
                     'motor_rate': motor,
                     'boat_rate': boat,
-                    'exhibition_time': boat_before.get(bn, {}).get('ex_time', 6.8),
+                    'exhibition_time': boat_before[bn]['ex_time'], # Guaranteed present
                     'exhibition_start_timing': boat_before.get(bn, {}).get('st', 0.20),
                     'pred_course': boat_before.get(bn, {}).get('pred_course', bn),
                     'wind_direction': weather['wind_direction'],
