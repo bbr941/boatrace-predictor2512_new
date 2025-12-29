@@ -494,7 +494,7 @@ class FeatureEngineer:
         # Use errors='coerce' to force non-parseable strings to NaN (float), 
         # preventing them from staying as Object and becoming Category.
         for col in df.columns:
-            if col not in ['race_id', 'race_date', 'venue_name', 'prior_results', 'wind_direction', 'branch']:
+            if col not in ['race_id', 'race_date', 'venue_name', 'prior_results', 'wind_direction', 'branch', 'class', 'racer_class']:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
         # Then convert remaining objects to category
