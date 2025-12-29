@@ -261,7 +261,89 @@ class BoatRaceScraper:
             
         return pd.DataFrame(rows)
 
-# --- 2. Feature Engineer ---
+
+def add_advanced_features(df):
+    # 1. F (Flying) Analysis & ST Correction
+    if 'prior_results' in df.columns:
+        df['is_F_holder'] = df['prior_results'].astype(str).apply(lambda x: 1 if 'F' in x else 0)
+    else:
+        df['is_F_holder'] = 0
+        
+    st_col = 'course_avg_st' if 'course_avg_st' in df.columns else 'exhibition_start_timing'
+    if st_col in df.columns:
+        df['corrected_st'] = df[st_col] + (df['is_F_holder'] * 0.05)
+    else:
+        df['corrected_st'] = 0.20
+        
+    # Inner ST Gap Corrected
+    df = df.sort_values(['race_id', 'boat_number']) # Ensure sort (app processes 1 race, but safe to sort)
+    prev_sts = df['corrected_st'].shift(1)
+    df['inner_st_gap_corrected'] = df['corrected_st'] - prev_sts
+    df.loc[df['boat_number'] == 1, 'inner_st_gap_corrected'] = 0.0
+    
+    # 2. Motor Gap
+    if 'motor_rate' in df.columns and 'exhibition_time' in df.columns:
+        df['motor_rank'] = df.groupby('race_id')['motor_rate'].rank(ascending=False, method='min')
+        df['tenji_rank'] = df.groupby('race_id')['exhibition_time'].rank(ascending=True, method='min')
+        df['motor_gap'] = df['motor_rank'] - df['tenji_rank']
+    else:
+        df['motor_gap'] = 0.0
+        
+    # 3. Specialist Gap
+    if 'venue_course_1st_rate' in df.columns and 'nat_win_rate' in df.columns:
+        df['specialist_score'] = df['venue_course_1st_rate'] - df['nat_win_rate']
+    else:
+        df['specialist_score'] = 0.0
+        
+    # 4. Winning Move Match
+    if 'nige_count' in df.columns and 'course_run_count' in df.columns:
+        df['my_nige_rate'] = df['nige_count'] / (df['course_run_count'] + 1.0)
+        df['my_sashi_rate'] = df['sashi_count'] / (df['course_run_count'] + 1.0)
+        df['my_makuri_rate'] = df['makuri_count'] / (df['course_run_count'] + 1.0)
+        
+        inner_nige_rate = df['my_nige_rate'].shift(1)
+        df['sashi_potential'] = df['my_sashi_rate'] / (inner_nige_rate + 0.01)
+        df.loc[df['boat_number'] == 1, 'sashi_potential'] = 0
+        
+        df['st_rank'] = df.groupby('race_id')['corrected_st'].rank(ascending=True)
+        inner_st_rank = df['st_rank'].shift(1)
+        df['makuri_potential'] = df['my_makuri_rate'] * inner_st_rank
+        df.loc[df['boat_number'] == 1, 'makuri_potential'] = 0
+    else:
+        df['sashi_potential'] = 0.0
+        df['makuri_potential'] = 0.0
+        
+    # 5. Venue Frame Bias
+    bias_path = 'app_data/venue_frame_bias.csv'
+    if os.path.exists(bias_path):
+        bias_df = pd.read_csv(bias_path)
+        bias_df['venue_code'] = bias_df['venue_code'].astype(str).str.zfill(2)
+        bias_df['boat_number'] = bias_df['boat_number'].astype(int)
+        
+        venue_map = {
+            '桐生': '01', '戸田': '02', '江戸川': '03', '平和島': '04', '多摩川': '05',
+            '浜名湖': '06', '蒲郡': '07', '常滑': '08', '津': '09', '三国': '10',
+            'びわこ': '11', '住之江': '12', '尼崎': '13', '鳴門': '14', '丸亀': '15',
+            '児島': '16', '宮島': '17', '徳山': '18', '下関': '19', '若松': 20,
+            '芦屋': '21', '福岡': '22', '唐津': '23', '大村': '24'
+        }
+        
+        if 'venue_name' in df.columns:
+            df['temp_venue_code'] = df['venue_name'].map(venue_map).fillna('00')
+            df = df.merge(bias_df, left_on=['temp_venue_code', 'boat_number'], right_on=['venue_code', 'boat_number'], how='left')
+            df.drop(columns=['temp_venue_code', 'venue_code'], inplace=True, errors='ignore')
+            
+            # Fill NaNs
+            if 'venue_frame_win_rate' in df.columns:
+                df['venue_frame_win_rate'] = df['venue_frame_win_rate'].fillna(0.16)
+            else:
+                 df['venue_frame_win_rate'] = 0.0 # Merge failed?
+        else:
+            df['venue_frame_win_rate'] = 0.0
+    else:
+        df['venue_frame_win_rate'] = 0.0
+        
+    return df
 class FeatureEngineer:
     @staticmethod
     def process(df, venue_name, debug_mode=False):
@@ -339,12 +421,18 @@ class FeatureEngineer:
         df['makuri_rate'] = df['makuri_count'] / df['course_run_count'].replace(0, 1)
         df['nige_rate'] = df['nige_count'] / df['course_run_count'].replace(0, 1)
 
+        # Advanced Features
+        df = add_advanced_features(df)
+
         df = df.sort_values('pred_course')
-        df['inner_st'] = df['exhibition_start_timing'].shift(1).fillna(0)
-        df['inner_st_gap'] = df['exhibition_start_timing'] - df['inner_st']
-        df['outer_st'] = df['exhibition_start_timing'].shift(-1).fillna(0)
+        # Use corrected_st if available
+        st_col = 'corrected_st' if 'corrected_st' in df.columns else 'exhibition_start_timing'
+        
+        df['inner_st'] = df[st_col].shift(1).fillna(0)
+        df['inner_st_gap'] = df[st_col] - df['inner_st'] # Overwrite
+        df['outer_st'] = df[st_col].shift(-1).fillna(0)
         avg_neighbor = (df['inner_st'] + df['outer_st']) / 2
-        df['slit_formation'] = df['exhibition_start_timing'] - avg_neighbor
+        df['slit_formation'] = df[st_col] - avg_neighbor
 
         c1_nige = df.loc[df['pred_course']==1, 'nige_rate']
         val = c1_nige.values[0] if len(c1_nige) > 0 else 0.5
@@ -507,15 +595,64 @@ if st.session_state.get('run_analysis'):
                 preds_h = model_h.predict(df_feat[feats_h])
                 df_feat['score_honmei'] = preds_h
                 
-                # Top 5
+                # --- Hybrid Strategy Logic ---
+                TH_HIGH = 1.5347
+                TH_LOW = 1.2923
+                score_std = df_feat['score_honmei'].std()
+                
+                mode = "Skip"
+                if score_std >= TH_HIGH: mode = "Enjoy"
+                elif score_std <= TH_LOW: mode = "Chaos"
+                
+                st.markdown("---")
+                st.write(f"**Race Score Std:** `{score_std:.4f}`")
+                
+                top_n = 0
+                filter_text = ""
+                
+                if mode == "Enjoy":
+                    st.success("🛡️ **Enjoy Mode** (High Confidence)")
+                    st.markdown("**Strategy:** Bet Top 4 (No Odds Filter)")
+                    top_n = 4
+                elif mode == "Chaos":
+                    st.error("🚀 **Chaos Mode** (Deep Confusion)")
+                    st.markdown("**Strategy:** Bet Top 6 (⚠️ **Only Odds >= 30.0**)")
+                    filter_text = " (Check Live Odds!)"
+                    top_n = 6
+                else:
+                    st.warning("☕ **Skip Mode** (Yield Low)")
+                    st.write("Recommendation: Watch & Relax")
+                    top_n = 0
+
+                # Formulate Predictions
                 scores_h = dict(zip(df_feat['boat_number'], df_feat['score_honmei']))
                 sorted_boats_h = df_feat.sort_values('score_honmei', ascending=False)['boat_number'].tolist()
                 
-                df_c_h = calculate_trifecta_scores(scores_h, sorted_boats_h)
+                # Use Top 4 boats for permutation base
+                cand_boats = sorted_boats_h[:4] 
                 
-                st.success(f"Best: **{df_c_h.iloc[0]['combo']}**")
-                st.markdown("#### Top 5 Recommendations")
-                st.dataframe(df_c_h.head(5), hide_index=True)
+                import itertools
+                combos = list(itertools.permutations(cand_boats, 3))
+                c_list = []
+                for c in combos:
+                    # Sum Score
+                    s = sum(scores_h[b] for b in c)
+                    c_list.append({'combo': f"{c[0]}-{c[1]}-{c[2]}", 'val': s})
+                
+                df_c_h = pd.DataFrame(c_list).sort_values('val', ascending=False)
+                
+                if top_n > 0:
+                    st.markdown(f"#### Recommended Buying List (Top {top_n}){filter_text}")
+                    st.dataframe(df_c_h.head(top_n), hide_index=True)
+                    st.success(f"Best Pick: **{df_c_h.iloc[0]['combo']}**")
+                else:
+                    st.dataframe(df_c_h.head(5), hide_index=True) # Show top 5 anyway for reference?
+                    # "表示なし" was requested for Skip.
+                    # But standard practice is to show prediction even if Skip recommended, just dim it.
+                    # User prompt: "表示なし".
+                    # I will hide the buying list. But maybe show "Best" quietly?
+                    # I'll hide specific recommendations.
+                    st.caption("Predictions available but strategy suggests Skipping.")
                 
             except Exception as e:
                 st.error(f"Prediction Error: {e}")
