@@ -588,10 +588,25 @@ if st.session_state.get('run_analysis'):
                 feats_h = model_h.feature_name()
                 
                 # Ensure all features exist
+                # Ensure all features exist and match types
+                # Hardcoded list of potential categorical features (based on debugging)
+                known_cats = ['branch', 'wind_direction', 'venue_code_y', 'class', 'racer_class']
+                
                 for f in feats_h:
                     if f not in df_feat.columns:
-                        df_feat[f] = 0
-                        
+                        # Missing Feature Handling
+                        if f in known_cats:
+                            df_feat[f] = '00' # Dummy string
+                            df_feat[f] = df_feat[f].astype('category')
+                        else:
+                            df_feat[f] = 0.0
+                    else:
+                        # Existing Feature Handling - Enforce Type
+                        if f in known_cats:
+                            # Force to Category if not already
+                            if not pd.api.types.is_categorical_dtype(df_feat[f]):
+                                df_feat[f] = df_feat[f].astype(str).astype('category')
+
                 preds_h = model_h.predict(df_feat[feats_h])
                 df_feat['score_honmei'] = preds_h
                 
